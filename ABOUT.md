@@ -1,107 +1,350 @@
-# Forge — Reliable Job Queue with Dead-Letter Recovery
+# InfrGate — Project Overview
 
-> A durable, crash-safe background job engine built from scratch. No Celery, no BullMQ, no Sidekiq — the primitives, implemented and understood.
+**InfrGate** is an intelligent inference control plane for routing, reliability, usage metering, and policy enforcement across multiple LLM providers.
 
-**Status:** Planned. Not started.
-**Target start:** [fill in date]
-**Target demo-ready:** [fill in date, ~2-3 weeks of focused work]
+It sits between client applications and model providers behind a single OpenAI-compatible API, so teams integrate with InfrGate instead of building auth, quotas, failover, and billing logic in every product.
 
----
-
-## Why this project exists
-
-Every backend job posting lists "experience with background jobs / queues" as a throwaway line. Almost nobody applying has actually built one — they've configured Celery and called it a day. This project exists to be able to say, truthfully, in an interview: *I know why your queue drops jobs on crash, why your retries double-charge customers, and how to fix both.*
-
-This is not a CRUD app with a queue bolted on. The queue **is** the product.
+The **client contract** is OpenAI-compatible (`POST /v1/chat/completions`). That does **not** require an OpenAI account. Phase 1 talks to **Google Gemini** (free API key from [Google AI Studio](https://aistudio.google.com/apikey)). OpenAI and other providers are added as adapters in later phases.
 
 ---
 
-## Core Guarantees (non-negotiable, must all work)
+## Problem
 
-1. **Durability** — jobs live in persistent storage (Postgres/SQLite/Redis-with-AOF, TBD), not memory. A worker crash or process kill must not lose a job.
-2. **Priority + delayed execution** — jobs can be scheduled for future execution and processed in priority order.
-3. **Exponential backoff retries** — configurable max attempts, jitter to avoid thundering herd.
-4. **Dead Letter Queue** — jobs exceeding max retries move to DLQ, inspectable and replayable.
-5. **Exactly-once processing (visibility timeout)** — no two workers ever process the same job concurrently. Lease/lock-based, with timeout-based reclaim if a worker dies mid-job.
-6. **Idempotency** — retrying a job that partially completed must not duplicate side effects. Idempotency keys enforced at the job-handler level.
-7. **Observability** — CLI or API to inspect queue depth, in-flight jobs, DLQ contents, per-job history.
+Applications integrating multiple LLM providers repeatedly solve the same infrastructure problems:
 
-If any of these seven are half-baked, the project isn't done. This list is the definition of done — not "it runs."
+- API authentication and tenant isolation
+- Provider selection and routing
+- Provider failures, retries, and failover
+- Rate limits and spend caps
+- Streaming and usage accounting
+- Observability and operational safety
 
----
-
-## Stretch Goals (only after core is airtight)
-
-- Job dependencies (Job B blocks on Job A's completion — DAG-lite)
-- Web dashboard for live queue monitoring (depth, throughput, failure rate over time)
+InfrGate centralizes those concerns behind one backend gateway.
 
 ---
 
-## Design Decisions to Make Before Coding
+## Product thesis
 
-*(fill these in when I sit down to build — forces me to think, not just start typing)*
+InfrGate is **not** a generic LLM proxy. It is a production-minded **backend control plane** where reliability, routing, tenant isolation, and usage accounting are first-class concerns.
 
-- [ ] Storage backend: Postgres (SKIP LOCKED for concurrency-safe dequeue) vs Redis vs SQLite for local-first simplicity
-- [ ] Language/runtime: Node/TS (matches my stack) — confirm
-- [ ] Locking mechanism: row-level lock + visibility timeout vs Redis SETNX-style lease
-- [ ] Backoff formula: base * 2^attempt + jitter — define caps
-- [ ] Idempotency key scope: per-job UUID vs caller-supplied key
-- [ ] How jobs are defined: typed handler registry vs generic payload + type string
+> Build the smallest coherent production-style inference gateway first, then progressively add intelligence and sophistication.
 
 ---
 
-## What Makes This "Reliable" Not "Toy"
+## Tech stack
 
-The difference between a resume-filler project and a real one is what happens when things go wrong. This project is explicitly designed around failure modes, not the happy path:
-
-- Kill a worker mid-job → job must reappear for another worker after visibility timeout, not vanish.
-- Kill the whole process during a burst of enqueues → no job loss on restart.
-- Simulate a flaky external API in a job handler → backoff + DLQ must behave correctly, and idempotency must prevent duplicate side effects on retry.
-- Load test with concurrent workers → provable no double-processing (test this explicitly, don't just assume the lock works).
-
-**A demo video/gif showing a worker crash and recovery, live, is the actual deliverable — not just clean code.**
-
----
-
-## Testing Plan
-
-- Unit tests per component (retry math, priority ordering, lock acquisition)
-- Integration test: spin up N workers, enqueue M jobs, kill a worker mid-run, assert no job lost and no job double-processed
-- Idempotency test: handler that fails after partial side-effect, assert retry doesn't duplicate it
-- Load test: throughput under concurrent workers, note numbers for README (real metrics > vague claims)
+| Layer | Technology |
+|-------|------------|
+| Language | Python 3.12+ |
+| API framework | FastAPI |
+| ASGI server | Uvicorn |
+| Database | PostgreSQL (system of record) |
+| Cache / distributed state | Redis (rate limits, ephemeral coordination) |
+| Migrations | Alembic |
+| Validation | Pydantic v2 |
+| HTTP client | httpx (async) |
+| Testing | pytest |
+| Containerization | Docker + Docker Compose |
 
 ---
 
-## How This Gets Positioned on Resume / Interviews
+## Core invariants
 
-- One line: *"Built a crash-safe distributed job queue in [stack] — durable persistence, exponential backoff retries, DLQ, and distributed locking to guarantee exactly-once processing under concurrent workers."*
-- Interview story ready: visibility timeout mechanics, why idempotency matters, what happens when a worker dies mid-job.
-- Pairs with backend/infra-leaning roles specifically — lead with this project for those, not VoltSense.
+These rules apply across all phases:
+
+| Invariant | Description |
+|-----------|-------------|
+| **Tenant isolation** | A request must never access another tenant's keys, usage, quotas, or policy |
+| **Ledger uniqueness** | Every inference has a unique `request_id`; usage is persisted at most once |
+| **Policy before provider call** | Auth, quota, and model-policy checks run before any upstream request |
+| **Failure containment** | A failed provider must not cause indefinite waits or repeated routing to a known-bad provider |
+| **Stream accounting** | Disconnected or failed streams still produce a usage record with best-known state |
 
 ---
 
-## Repo Structure (draft)
+## Full system architecture
 
+Target architecture when all phases are complete:
+
+```text
+                           ┌───────────────────┐
+                           │   Client Apps     │
+                           └─────────┬─────────┘
+                                     │
+                     OpenAI-compatible client API
+                                     │
+                           ┌─────────▼─────────┐
+                           │  FastAPI Gateway  │
+                           └─────────┬─────────┘
+                                     │
+                  ┌──────────────────┼──────────────────┐
+                  │                  │                  │
+                  ▼                  ▼                  ▼
+             Auth/Tenant       Rate Limiter        Policy Checks
+                  │                  │                  │
+                  └──────────────────┼──────────────────┘
+                                     ▼
+                           ┌─────────────────┐
+                           │ Routing Engine  │
+                           └───────┬─────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+                 Gemini         OpenAI        Additional
+               (Phase 1)      (Phase 2)      (later)
+                    │              │              │
+                    └──────────────┼──────────────┘
+                                   ▼
+                           Response / Stream
+                                   │
+                         ┌─────────▼────────┐
+                         │ Usage Recorder  │
+                         └─────────┬────────┘
+                                   │
+                        ┌──────────▼──────────┐
+                        │     PostgreSQL      │
+                        └─────────────────────┘
+
+                 Redis ────── rate limits / cache / circuit & health state
+
+                 Worker ───── usage aggregation / webhooks
 ```
-forge/
-├── src/
-│   ├── queue/          # enqueue, dequeue, priority, scheduling
-│   ├── worker/          # job execution, locking, visibility timeout
-│   ├── retry/            # backoff logic, DLQ transition
-│   ├── storage/         # persistence layer (swappable backend)
-│   └── cli/                # inspect queue depth, in-flight, DLQ
-├── tests/
-│   ├── unit/
-│   └── integration/        # crash simulation, concurrency proof
-├── docs/
-│   └── ARCHITECTURE.md  # design decisions + diagrams, write as you go
-└── README.md
+
+### Request lifecycle
+
+```text
+HTTP request
+    ↓
+request ID
+    ↓
+authentication → tenant resolution → plan / model authorization
+    ↓
+rate limit → spend-cap check
+    ↓
+routing decision
+    ↓
+provider execution (timeout, retry, circuit breaker, failover)
+    ↓
+response / stream
+    ↓
+usage persistence
+    ↓
+background processing (when required)
+```
+
+### Logical component boundaries
+
+| Component | Owns | Must not own |
+|-----------|------|--------------|
+| **Gateway** | HTTP interface, validation, auth, tenant context, rate limiting, orchestration | Provider retry logic, billing rules inside handlers |
+| **Routing engine** | Model/provider resolution, eligible selection, health signals, routing logs | HTTP streaming, tenant credentials |
+| **Provider adapters** | Upstream auth, request/response translation, streaming translation | Tenant policies, usage rules |
+| **Reliability layer** | Timeout, retry, circuit breaker, failover | Usage aggregation |
+| **Usage service** | Durable inference accounting, idempotency | Webhook delivery |
+| **Worker** | Async jobs: aggregation, webhooks | Blocking the inference hot path |
+
+### Deployment model
+
+**Local / initial:**
+
+```text
+Docker Compose
+├── FastAPI (gateway)
+├── Worker          ← Phase 3+
+├── PostgreSQL
+└── Redis
+```
+
+**Production growth path:**
+
+```text
+Load Balancer → Gateway replicas → PostgreSQL + Redis + Worker replicas
+```
+
+The API and worker scale independently. The system starts as a **modular monolith plus worker**, not premature microservices.
+
+---
+
+## Phase-wise distribution
+
+InfrGate is built in **five capability phases**. Each phase delivers a usable, testable increment. Features are not pulled forward merely because they sound impressive.
+
+### Phase 1 — Foundation *(current)*
+
+**Goal:** Create the smallest usable InfrGate.
+
+**Included:**
+
+- FastAPI application structure
+- PostgreSQL connection and migrations
+- Tenant model, API-key authentication, plan configuration, spend-cap field
+- Request correlation / request ID
+- One provider adapter: **Gemini** (Google Generative Language API; free key via Google AI Studio)
+- OpenAI-compatible `POST /v1/chat/completions` (non-streaming) — client-facing shape; upstream is Gemini
+- Usage ledger with idempotent `request_id`
+- Redis-backed rate limiting
+- Basic error model and structured logging
+- Unit + integration test foundation
+- Docker Compose for local development
+
+**Architecture at phase completion:**
+
+```text
+Client → FastAPI → Auth / Tenant → Rate Limit → Gemini Adapter → Usage Ledger
+                                                      ↓
+                                              PostgreSQL + Redis
+```
+
+**Not included:** a second live provider (OpenAI and others land in Phase 2), adaptive routing, circuit breaker, SSE, workers.
+
+**Local setup:** set `GEMINI_API_KEY` from Google AI Studio. No paid OpenAI key is required to run Phase 1.
+
+---
+
+### Phase 2 — Provider Abstraction + Reliability
+
+**Goal:** Turn the single-provider API into a genuine multi-provider gateway.
+
+**Included:**
+
+- Provider interface and registry
+- Second live provider (OpenAI) + fake provider for failure injection
+- Model/provider resolution (priority-based routing)
+- Timeout handling, retry with exponential backoff + jitter
+- Circuit breaker (CLOSED → OPEN → HALF_OPEN → CLOSED)
+- Provider health state (coarse, from circuit breaker)
+- Failover and upstream error normalization
+
+**Apply-ready milestone:** Phase 1 + Phase 2 complete before job applications.
+
+---
+
+### Phase 3 — Streaming + Async Processing
+
+**Goal:** Production-like streaming and durable background work.
+
+**Included:**
+
+- SSE streaming and async provider streaming
+- Client disconnect handling and partial usage recording
+- Background worker with Postgres job queue (`FOR UPDATE SKIP LOCKED`)
+- Usage aggregation and spend-threshold webhook delivery
+- Webhook retry and dead-letter behavior
+
+---
+
+### Phase 4 — Intelligent Routing
+
+**Goal:** Explainable heuristic routing using statistical signals — **not machine learning**.
+
+**Included:**
+
+- Rolling error/latency signals and EWMA-based health calculations
+- Configurable routing weights (availability, latency, error, cost)
+- Cost-aware routing and model capability constraints
+- Routing decision logs (explainable inputs and chosen provider)
+
+---
+
+### Phase 5 — Hardening & Production Evidence
+
+**Goal:** Portfolio-quality operational evidence and observability.
+
+**Included:**
+
+- Load tests, concurrency tests, failure-injection suite, benchmarks
+- Security hardening and migration safety
+- `GET /health/live`, `GET /health/ready`, `GET /metrics` (Prometheus-style)
+- Structured logs, API documentation, architecture diagrams, runbook
+- Resume claims backed by reproducible test evidence
+
+---
+
+## Phase dependency graph
+
+```text
+Phase 1 — Foundation                    ← YOU ARE HERE
+   ↓
+Phase 2 — Provider Abstraction + Reliability
+   ↓
+Phase 3 — Streaming + Async Processing
+   ↓
+Phase 4 — Intelligent Routing
+   ↓
+Phase 5 — Hardening & Production Evidence
 ```
 
 ---
 
-## Notes to Future Self
+## Data model (full project)
 
-- Don't start coding until the design decisions checklist above is filled in. Half of what makes this "reliable" is deciding the hard parts on paper first.
-- Resist the urge to add the dashboard before the core seven guarantees are bulletproof and tested.
-- Write ARCHITECTURE.md as you build, not after — capture *why*, not just *what*.
+PostgreSQL is the durable source of truth.
+
+| Table | Purpose | Introduced |
+|-------|---------|------------|
+| `tenants` | Multi-tenant identity, plan, spend cap, status | Phase 1 |
+| `api_keys` | Prefix + hash key storage, revocation | Phase 1 |
+| `usage_ledger` | One row per inference; `UNIQUE(request_id)` | Phase 1 |
+| `provider_configs` | Provider/model config, priority, costs, timeouts | Phase 2 |
+| `jobs` | Postgres-backed worker queue | Phase 3 |
+| `webhook_deliveries` | Webhook attempt tracking and retries | Phase 3 |
+
+Redis holds rate-limit counters, circuit breaker state, and ephemeral health/EWMA signals — never the canonical usage ledger.
+
+---
+
+## API surface (full project)
+
+| Endpoint | Phase |
+|----------|-------|
+| `POST /v1/chat/completions` | Phase 1 (non-streaming); Phase 3 adds streaming |
+| `POST /admin/tenants`, `POST /admin/api-keys`, `GET /admin/usage` | Phase 1 |
+| `GET /admin/providers`, `GET /admin/health` | Phase 2+ |
+| `GET /health/live`, `GET /health/ready` | Phase 5 |
+| `GET /metrics` | Phase 5 |
+
+Authentication: `Authorization: Bearer <api-key>`. Every response includes `X-Request-ID`.
+
+---
+
+## Explicit non-goals
+
+The following are **deferred** until the core system is proven:
+
+- Full OpenAI API compatibility
+- Generic policy DSL
+- Kafka / NATS / RabbitMQ
+- Machine-learning-based routing
+- Shadow routing and request replay
+- Distributed tracing (OpenTelemetry)
+- Admin dashboard / large frontend
+- Premature microservice decomposition
+
+See [`supporting_docs/spec/13-future-work.md`](../supporting_docs/spec/13-future-work.md) for the full deferred list.
+
+---
+
+## Documentation map
+
+| Document | Location |
+|----------|----------|
+| Engineering specifications | [`supporting_docs/spec/`](../supporting_docs/spec/) |
+| Spec index and contract | [`supporting_docs/README.md`](../supporting_docs/README.md) |
+| Project overview (this file) | [`project_docs/ABOUT.md`](ABOUT.md) |
+| Repository entry point | [`README.md`](../README.md) |
+
+---
+
+## Definition of done
+
+InfrGate is resume-worthy when major claims are backed by **code and reproducible tests**, not documentation alone.
+
+Demonstrable capabilities by phase:
+
+| Capability | Phase |
+|------------|-------|
+| Auth, rate limiting, tenant isolation, usage ledger | 1 |
+| Failover, circuit breaker, retries | 2 |
+| SSE streaming, worker safety, webhooks | 3 |
+| Health-aware adaptive routing | 4 |
+| Load tests, metrics, operational runbook | 5 |
