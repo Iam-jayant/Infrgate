@@ -1,0 +1,15 @@
+# ──────────────────────────────────────────────────────────────────────────
+# InfrGate — Docker Compose development overrides
+# Usage: docker compose up (automatically merges this file)
+# ──────────────────────────────────────────────────────────────────────────
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./src:/app/src:ro
+    command: ["uvicorn", "infrgate.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      - LOG_LEVEL=DEBUG
