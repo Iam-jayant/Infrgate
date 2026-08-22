@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import AsyncIterator
+
+from infrgate.schemas.streaming import StreamChunk
 
 
 @dataclass
@@ -72,6 +75,22 @@ class ProviderAdapter(ABC):
 
         Returns:
             Normalized provider response.
+
+        Raises:
+            ProviderError: On any provider failure.
+        """
+        ...
+
+    @abstractmethod
+    async def stream(self, request: ProviderRequest) -> AsyncIterator[StreamChunk]:
+        """
+        Execute a streaming chat completion.
+
+        Args:
+            request: Normalized provider request.
+
+        Yields:
+            StreamChunk objects representing chunks of the completion.
 
         Raises:
             ProviderError: On any provider failure.

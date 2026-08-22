@@ -9,7 +9,9 @@ Spec reference: 06-provider-adapters.md §3
 
 from __future__ import annotations
 
+import json
 import time
+from typing import AsyncIterator
 
 import httpx
 import structlog
@@ -21,6 +23,7 @@ from infrgate.exceptions import (
     ProviderTimeoutError,
 )
 from infrgate.providers.base import ProviderAdapter, ProviderRequest, ProviderResponse
+from infrgate.schemas.streaming import StreamChunk
 
 logger = structlog.get_logger()
 
@@ -104,6 +107,92 @@ class GeminiAdapter(ProviderAdapter):
         )
 
         return response
+
+    async def stream(self, request: ProviderRequest) -> AsyncIterator[StreamChunk]:
+        """Execute a streaming chat completion via Gemini."""
+        url = f"{self.BASE_URL}/models/{request.model}:streamGenerateContent?alt=sse"
+        body = self._translate_request(request)
+
+        logger.info(
+            "provider_stream_started",
+            provider="gemini",
+            model=request.model,
+            request_id=request.request_id,
+        )
+
+        try:
+            async with self._client.stream(
+                "POST",
+                url,
+                json=body,
+                params={"key": self._api_key},
+                timeout=30.0,
+            ) as resp:
+                if resp.status_code != 200:
+                    await resp.aread()
+                    self._handle_error(resp, request.request_id)
+
+                is_first = True
+
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        try:
+                            data = json.loads(data_str)
+
+                            candidates = data.get("candidates", [])
+                            delta_role = "assistant" if is_first else None
+                            
+                            delta_content = None
+                            finish_reason = None
+
+                            if candidates:
+                                candidate = candidates[0]
+                                parts = candidate.get("content", {}).get("parts", [])
+                                if parts:
+                                    delta_content = parts[0].get("text")
+                                    is_first = False
+
+                                gemini_finish = candidate.get("finishReason")
+                                if gemini_finish:
+                                    finish_reason = _FINISH_REASON_MAP.get(gemini_finish, "stop")
+
+                            usage = None
+                            usage_meta = data.get("usageMetadata")
+                            if usage_meta:
+                                usage = {
+                                    "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                                    "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                                    "total_tokens": usage_meta.get("totalTokenCount", 0),
+                                }
+
+                            yield StreamChunk(
+                                id=request.request_id,
+                                model=request.model,
+                                delta_role=delta_role,
+                                delta_content=delta_content,
+                                finish_reason=finish_reason,
+                                usage=usage
+                            )
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "provider_stream_parse_error",
+                                provider="gemini",
+                                line=line,
+                                request_id=request.request_id
+                            )
+
+        except httpx.TimeoutException:
+            raise ProviderTimeoutError("gemini", 30.0)
+        except httpx.ConnectError as e:
+            raise ProviderError(
+                message=f"Failed to connect to Gemini: {e}",
+                provider="gemini",
+                retryable=True,
+            )
 
     def _translate_request(self, request: ProviderRequest) -> dict:
         """
