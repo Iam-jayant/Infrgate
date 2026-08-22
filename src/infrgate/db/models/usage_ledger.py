@@ -1,8 +1,10 @@
 """
-Usage Ledger model — one row per inference, idempotent on request_id.
+Usage Ledger model — one row per inference, idempotent on idempotency_key.
 
-The UNIQUE constraint on request_id ensures at-most-once recording.
-INSERT uses ON CONFLICT (request_id) DO NOTHING for idempotency.
+The UNIQUE constraint on (tenant_id, idempotency_key) ensures at-most-once
+provider calls per tenant per logical request. The claim-first pattern inserts
+a 'pending' row before calling the provider; if the INSERT conflicts, the
+provider call is skipped entirely.
 
 Spec reference: 03-data-model.md §3.3, 10-usage-accounting.md
 """
@@ -12,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -27,21 +29,31 @@ class UsageLedger(Base, UUIDPrimaryKeyMixin):
 
     __tablename__ = "usage_ledger"
 
-    request_id: Mapped[uuid.UUID] = mapped_column(nullable=False, unique=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id"),
         nullable=False,
     )
     model: Mapped[str] = mapped_column(String(100), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, server_default="pending")
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cost_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="completed")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSON().with_variant(JSONB, "postgresql"), nullable=False, server_default="{}"
+    )
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -54,8 +66,9 @@ class UsageLedger(Base, UUIDPrimaryKeyMixin):
 
     # ── Constraints & Indexes ─────────────────────────────────────────────
     __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_usage_tenant_idempotency"),
         CheckConstraint(
-            "status IN ('completed', 'failed', 'partial')",
+            "status IN ('pending', 'completed', 'failed', 'partial')",
             name="chk_usage_status",
         ),
         Index("idx_usage_tenant_created", "tenant_id", created_at.desc()),
