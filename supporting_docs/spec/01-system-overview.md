@@ -230,7 +230,7 @@ What is **active** at each phase completion:
 | **Migrations** | Alembic | Standard SQLAlchemy migration tool, supports autogenerate |
 | **HTTP client** | httpx (async) | Async-first, streaming support, timeout control, connection pooling |
 | **Validation** | Pydantic v2 | Performance improvement over v1, native FastAPI integration |
-| **Testing** | pytest + pytest-asyncio | Async test support, fixture system, widespread adoption |
+| **Testing** | pytest, aiosqlite, AsyncMock | Pure in-memory databases and heavily mocked external dependencies for ultra-fast execution, explicitly avoiding testcontainers. |
 | **Containers** | Docker + Compose | Reproducible local environment, single-command startup |
 
 ---

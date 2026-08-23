@@ -17,7 +17,7 @@ Every inference request produces exactly one usage record. The usage ledger is I
 ### Design principles
 
 1. **Durability:** Usage records are stored in PostgreSQL, never only in Redis
-2. **Idempotency:** `UNIQUE(request_id)` ensures at-most-once recording
+2. **Idempotency:** Composite constraint `UNIQUE(tenant_id, idempotency_key)` ensures at-most-once recording with claim-first pending rows
 3. **Completeness:** Every request (success, failure, partial) produces a record
 4. **Accuracy:** Token counts come from the provider when available; estimation is the fallback
 5. **Tenant isolation:** Usage queries always filter by `tenant_id`
@@ -33,7 +33,8 @@ See [03-data-model.md](03-data-model.md#usage_ledger) for the full DDL.
 | Field | Type | Source | Description |
 |---|---|---|---|
 | `id` | UUID | Gateway | Primary key |
-| `request_id` | UUID | Gateway | Idempotency key (unique) |
+| `request_id` | UUID | Gateway | Internal request identifier |
+| `idempotency_key` | string | Client | Idempotency key (unique per tenant) |
 | `tenant_id` | UUID | Auth | Tenant that made the request |
 | `model` | string | Request | Model identifier |
 | `provider` | string | Routing | Provider that served the request |
@@ -147,22 +148,42 @@ async def record_usage(
 
 ## 4. Idempotency
 
-### 4.1 Mechanism
+### 4.1 Claim-First Mechanism
 
-The `UNIQUE(request_id)` constraint on `usage_ledger` ensures that:
-- Each inference produces at most one usage record
-- Retries and duplicate writes are safe (`ON CONFLICT DO NOTHING`)
-- The spend accumulator is updated exactly once per request
+InfrGate uses a **claim-first idempotency** model to protect against double-billing during network retries.
+The `UNIQUE(tenant_id, idempotency_key)` constraint on `usage_ledger` ensures that each logical request is processed exactly once per tenant.
 
-### 4.2 Edge cases
+Before calling an upstream provider, the gateway inserts a `pending` row:
+```sql
+INSERT INTO usage_ledger (tenant_id, idempotency_key, status, claimed_at, ...)
+VALUES (...)
+```
+If a concurrent request arrives with the same key, it hits the unique constraint. If the existing row is `pending`, it returns `409 Conflict`. If it is `completed` or `failed`, it replays the saved response.
+
+### 4.2 Lease-Expiry and Orphan Recovery (CAS)
+
+If the server crashes mid-flight, a `pending` row could remain stuck indefinitely. InfrGate uses a 90-second lease window. When a duplicate request arrives, if the existing `pending` row is older than 90 seconds, the new request reclaims it using a Compare-and-Swap (CAS) update:
+```sql
+UPDATE usage_ledger 
+SET claimed_at = now() 
+WHERE tenant_id = :t AND idempotency_key = :k AND status = 'pending' AND claimed_at = :c
+```
+This allows the system to self-heal without manual intervention.
+
+### 4.3 Cancellation Handling (asyncio.CancelledError)
+
+During mid-flight execution, client disconnects trigger an `asyncio.CancelledError`. Since Python 3.8, this inherits from `BaseException`, bypassing standard `except Exception` blocks.
+To guarantee the usage ledger is always updated out of the `pending` state, we explicitly catch `asyncio.CancelledError` and wrap the database finalization block in an `anyio.CancelScope(shield=True)`.
+
+### 4.4 Edge cases & Limitations
 
 | Scenario | Behavior |
 |---|---|
-| Normal request | One INSERT, one spend update |
-| Gateway crash after INSERT | Spend already updated in same transaction |
-| Gateway crash before INSERT | No usage record; request_id unique prevents duplication on retry |
-| Duplicate request_id | Second INSERT is a no-op; spend is not double-counted |
-| Stream disconnect | Partial record inserted with best-known tokens |
+| Normal request | One INSERT (pending), one UPDATE (completed), one spend update |
+| Gateway crash mid-flight | Row stays `pending`. Recovers after 90s lease expiry via CAS |
+| Duplicate request (concurrent) | `409 Conflict` (mid-flight) |
+| Duplicate request (after complete) | Replays original response body and status code |
+| Cancellation during `claim_or_replay_request` | Narrow race condition. If cancelled exactly during the initial insert, the shielded block isn't entered yet. Handled safely by the 90s lease expiry. |
 
 ---
 

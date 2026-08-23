@@ -276,7 +276,15 @@ POST to tenant webhook URL
 }
 ```
 
-### 6.3 Delivery implementation
+### 6.3 Security & SSRF Protection
+
+Dispatching webhooks dynamically opens vectors for Server-Side Request Forgery (SSRF) and DNS rebinding attacks. Validating the URL via standard parsing is insufficient. The webhook dispatcher implements strict IP-level verification:
+1. **Asynchronous DNS Resolution**: The hostname is resolved to an IP address before the request is made.
+2. **Internal Network Blocking**: The resolved IP is checked against forbidden ranges (`10.0.0.0/8`, `127.0.0.0/8`, `169.254.169.254`, etc.). If it resolves to an internal IP, the webhook is immediately failed.
+3. **HTTPS Enforcement**: All webhooks must use `https://`.
+4. **TLS Verification**: Strict TLS certificate verification is enforced.
+
+### 6.4 Delivery implementation
 
 ```python
 async def handle_webhook_delivery(payload: dict) -> None:
@@ -319,7 +327,7 @@ async def handle_webhook_delivery(payload: dict) -> None:
         await save_delivery(delivery)
 ```
 
-### 6.4 Retry policy for webhooks
+### 6.5 Retry policy for webhooks
 
 | Attempt | Delay | Total elapsed |
 |---|---|---|
