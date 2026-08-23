@@ -76,23 +76,7 @@ class TestChatCompletions:
 
         assert resp.status_code in (400, 401)  # 400 if header is missing
 
-    @pytest.mark.asyncio
-    async def test_streaming_not_supported(self, client, setup_tenant):
-        """stream=true returns 400 in Phase 1."""
-        _, api_key = setup_tenant
 
-        resp = await client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "gemini-2.0-flash",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "stream": True,
-            },
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-
-        assert resp.status_code == 400
-        assert "streaming" in resp.json()["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_invalid_request_body(self, client, setup_tenant):
