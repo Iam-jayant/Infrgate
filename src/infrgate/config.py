@@ -55,14 +55,14 @@ PLAN_DEFAULTS: dict[str, dict] = {
         "rpm": 10,
         "tpm": 10_000,
         "spend_cap_cents": 1000,  # $10
-        "models": ["gemini-2.0-flash"],
+        "models": ["gemini-3.6-flash"],
     },
     "standard": {
         "rpm": 60,
         "tpm": 100_000,
         "spend_cap_cents": 10_000,  # $100
         "models": [
-            "gemini-2.0-flash",
+            "gemini-3.6-flash",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
@@ -72,7 +72,7 @@ PLAN_DEFAULTS: dict[str, dict] = {
         "tpm": 1_000_000,
         "spend_cap_cents": None,  # Unlimited
         "models": [
-            "gemini-2.0-flash",
+            "gemini-3.6-flash",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
