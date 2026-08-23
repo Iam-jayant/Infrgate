@@ -26,9 +26,9 @@ def upgrade() -> None:
         VALUES (
             'gemini',
             'Google Gemini',
-            '{json.dumps([{"model_id": "gemini-2.0-flash", "aliases": ["gemini-flash"]}, {"model_id": "gemini-2.5-flash", "aliases": []}, {"model_id": "gemini-2.5-pro", "aliases": []}])}',
+            '{json.dumps([{"model_id": "gemini-3.6-flash", "aliases": ["gemini-flash"]}, {"model_id": "gemini-2.5-flash", "aliases": []}, {"model_id": "gemini-2.5-pro", "aliases": []}])}',
             100,
-            '{json.dumps({"gemini-2.0-flash": {"prompt": 0.10, "completion": 0.40}, "gemini-2.5-flash": {"prompt": 0.075, "completion": 0.30}, "gemini-2.5-pro": {"prompt": 1.25, "completion": 10.0}})}',
+            '{json.dumps({"gemini-3.6-flash": {"prompt": 0.10, "completion": 0.40}, "gemini-2.5-flash": {"prompt": 0.075, "completion": 0.30}, "gemini-2.5-pro": {"prompt": 1.25, "completion": 10.0}})}',
             '{json.dumps({"connect_timeout_s": 5.0, "read_timeout_s": 30.0, "total_timeout_s": 60.0})}',
             true
         ),
