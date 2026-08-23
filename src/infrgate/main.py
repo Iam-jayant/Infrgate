@@ -101,8 +101,10 @@ def create_app() -> FastAPI:
 
     # ── Middleware (outermost first) ──────────────────────────────────────
     from infrgate.middleware.request_id import RequestIDMiddleware
+    from infrgate.middleware.metrics import MetricsMiddleware
 
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(MetricsMiddleware)
 
     # ── Exception handlers ───────────────────────────────────────────────
     from infrgate.middleware.error_handler import register_error_handlers
@@ -112,9 +114,13 @@ def create_app() -> FastAPI:
     # ── Routers ──────────────────────────────────────────────────────────
     from infrgate.api.admin import admin_router
     from infrgate.api.v1 import v1_router
+    from infrgate.api.health import router as health_router
+    from infrgate.api.metrics_router import router as metrics_router
 
     app.include_router(v1_router)
     app.include_router(admin_router)
+    app.include_router(health_router)
+    app.include_router(metrics_router)
 
     return app
 
