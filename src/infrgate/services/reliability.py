@@ -10,8 +10,9 @@ import asyncio
 import random
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import structlog
 from fastapi import HTTPException
@@ -23,6 +24,7 @@ from infrgate.exceptions import (
     ProviderTimeoutError,
 )
 from infrgate.providers.base import ProviderAdapter, ProviderRequest, ProviderResponse
+from infrgate.schemas.streaming import StreamChunk
 
 logger = structlog.get_logger()
 
@@ -46,6 +48,8 @@ async def execute_with_timeout(
             timeout=timeout.total_timeout_s,
         )
     except asyncio.TimeoutError:
+        from infrgate.metrics import PROVIDER_TIMEOUTS_TOTAL
+        PROVIDER_TIMEOUTS_TOTAL.labels(provider=adapter.provider_name).inc()
         raise ProviderTimeoutError(adapter.provider_name, timeout.total_timeout_s)
 
 
@@ -99,6 +103,8 @@ async def execute_with_retry(
                 error=str(e),
                 request_id=request.request_id,
             )
+            from infrgate.metrics import PROVIDER_RETRIES_TOTAL
+            PROVIDER_RETRIES_TOTAL.labels(provider=adapter.provider_name).inc()
             await asyncio.sleep(delay)
 
     if last_error:
@@ -123,7 +129,7 @@ class CircuitBreakerConfig:
 
 async def get_circuit_state(redis: Redis, provider: str, config: CircuitBreakerConfig) -> CircuitState:
     key = f"infrgate:circuit:{provider}"
-    data = await redis.hgetall(key)
+    data = await redis.hgetall(key)  # type: ignore
     if not data:
         return CircuitState.CLOSED
 
@@ -133,7 +139,7 @@ async def get_circuit_state(redis: Redis, provider: str, config: CircuitBreakerC
         opened_at_bytes = data.get(b"opened_at", b"0")
         opened_at = float(opened_at_bytes.decode() if opened_at_bytes else 0)
         if time.time() - opened_at >= config.recovery_timeout_s:
-            await redis.hset(
+            await redis.hset(  # type: ignore
                 key,
                 mapping={
                     "state": "half_open",
@@ -158,10 +164,10 @@ async def record_circuit_result(
 
     if state == CircuitState.CLOSED:
         if not success:
-            failure_count = await redis.hincrby(key, "failure_count", 1)
-            await redis.hset(key, "last_failure", str(time.time()))
+            failure_count = await redis.hincrby(key, "failure_count", 1)  # type: ignore
+            await redis.hset(key, "last_failure", str(time.time()))  # type: ignore
             if failure_count >= config.failure_threshold:
-                await redis.hset(
+                await redis.hset(  # type: ignore
                     key,
                     mapping={
                         "state": "open",
@@ -170,14 +176,17 @@ async def record_circuit_result(
                     },
                 )
                 logger.error("circuit_opened", provider=provider)
+                from infrgate.metrics import CIRCUIT_STATE_CHANGES_TOTAL, PROVIDER_CIRCUIT_STATE
+                CIRCUIT_STATE_CHANGES_TOTAL.labels(provider=provider, transition="closed_to_open").inc()
+                PROVIDER_CIRCUIT_STATE.labels(provider=provider).set(1)
         else:
-            await redis.hset(key, "failure_count", "0")
+            await redis.hset(key, "failure_count", "0")  # type: ignore
 
     elif state == CircuitState.HALF_OPEN:
         if success:
-            success_count = await redis.hincrby(key, "success_count", 1)
+            success_count = await redis.hincrby(key, "success_count", 1)  # type: ignore
             if success_count >= config.success_threshold:
-                await redis.hset(
+                await redis.hset(  # type: ignore
                     key,
                     mapping={
                         "state": "closed",
@@ -186,8 +195,11 @@ async def record_circuit_result(
                     },
                 )
                 logger.info("circuit_closed", provider=provider)
+                from infrgate.metrics import CIRCUIT_STATE_CHANGES_TOTAL, PROVIDER_CIRCUIT_STATE
+                CIRCUIT_STATE_CHANGES_TOTAL.labels(provider=provider, transition="half_open_to_closed").inc()
+                PROVIDER_CIRCUIT_STATE.labels(provider=provider).set(0)
         else:
-            await redis.hset(
+            await redis.hset(  # type: ignore
                 key,
                 mapping={
                     "state": "open",
@@ -196,6 +208,9 @@ async def record_circuit_result(
                 },
             )
             logger.warning("circuit_reopened", provider=provider)
+            from infrgate.metrics import CIRCUIT_STATE_CHANGES_TOTAL, PROVIDER_CIRCUIT_STATE
+            CIRCUIT_STATE_CHANGES_TOTAL.labels(provider=provider, transition="half_open_to_open").inc()
+            PROVIDER_CIRCUIT_STATE.labels(provider=provider).set(1)
 
 
 @dataclass
@@ -214,6 +229,9 @@ class RoutingDecision:
     selected_provider: str | None = None
     fallback_used: bool = False
     reason: str = ""
+    scores: dict[str, dict] | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    tenant_id: str | None = None
 
 
 async def execute_with_failover(
@@ -221,6 +239,8 @@ async def execute_with_failover(
     request: ProviderRequest,
     redis: Redis,
     cb_config: CircuitBreakerConfig,
+    scores: dict[str, dict] | None = None,
+    tenant_id: str | None = None,
 ) -> tuple[ProviderResponse, RoutingDecision]:
     """Execute request with failover across providers."""
     errors = []
@@ -228,6 +248,8 @@ async def execute_with_failover(
         request_id=request.request_id,
         requested_model=request.model,
         eligible_providers=[p.adapter.provider_name for p in providers],
+        scores=scores,
+        tenant_id=tenant_id,
     )
 
     for i, provider in enumerate(providers):
@@ -236,6 +258,7 @@ async def execute_with_failover(
             errors.append(f"{provider.adapter.provider_name}: circuit open")
             continue
 
+        start_time = time.monotonic()
         try:
             response = await execute_with_retry(
                 provider.adapter,
@@ -243,20 +266,137 @@ async def execute_with_failover(
                 provider.timeout_config,
                 provider.retry_policy,
             )
+            from infrgate.metrics import PROVIDER_REQUESTS_TOTAL, PROVIDER_LATENCY, FAILOVERS_TOTAL
+            PROVIDER_REQUESTS_TOTAL.labels(provider=provider.adapter.provider_name, status="success").inc()
+            
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            PROVIDER_LATENCY.labels(provider=provider.adapter.provider_name).observe(latency_ms / 1000.0)
+            
+            if i > 0:
+                FAILOVERS_TOTAL.labels(
+                    from_provider=providers[0].adapter.provider_name,
+                    to_provider=provider.adapter.provider_name
+                ).inc()
+            from infrgate.services.scoring import record_health_signal, log_routing_decision
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, False)
             await record_circuit_result(redis, provider.adapter.provider_name, True, cb_config)
 
             decision.selected_provider = provider.adapter.provider_name
             decision.fallback_used = i > 0
-            decision.reason = "fallback" if i > 0 else "primary"
-
+            if not decision.reason:
+                decision.reason = "fallback" if i > 0 else "primary"
+                
+            await log_routing_decision(redis, decision)
             return response, decision
 
         except ProviderError as e:
+            from infrgate.metrics import PROVIDER_REQUESTS_TOTAL
+            PROVIDER_REQUESTS_TOTAL.labels(provider=provider.adapter.provider_name, status="error").inc()
+            
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            from infrgate.services.scoring import record_health_signal
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
             await record_circuit_result(redis, provider.adapter.provider_name, False, cb_config)
             errors.append(f"{provider.adapter.provider_name}: {e.message}")
 
             if not getattr(e, "retryable", False):
                 raise
+
+    raise HTTPException(
+        503,
+        detail={
+            "error": {
+                "type": "provider_unavailable",
+                "message": "All providers failed.",
+                "details": errors,
+            }
+        },
+    )
+
+
+async def execute_stream_with_failover(
+    providers: list[EligibleProvider],
+    request: ProviderRequest,
+    redis: Redis,
+    cb_config: CircuitBreakerConfig,
+    scores: dict[str, dict] | None = None,
+    tenant_id: str | None = None,
+) -> tuple[AsyncGenerator[StreamChunk, None], RoutingDecision]:
+    """Execute streaming request with failover across providers (before first chunk)."""
+    errors = []
+    decision = RoutingDecision(
+        request_id=request.request_id,
+        requested_model=request.model,
+        eligible_providers=[p.adapter.provider_name for p in providers],
+        scores=scores,
+        tenant_id=tenant_id,
+    )
+
+    for i, provider in enumerate(providers):
+        circuit_state = await get_circuit_state(redis, provider.adapter.provider_name, cb_config)
+        if circuit_state == CircuitState.OPEN:
+            errors.append(f"{provider.adapter.provider_name}: circuit open")
+            continue
+
+        start_time = time.monotonic()
+        try:
+            stream = provider.adapter.stream(request)
+
+            try:
+                first_chunk = await asyncio.wait_for(
+                    anext(stream),
+                    timeout=provider.timeout_config.total_timeout_s
+                )
+            except asyncio.TimeoutError:
+                raise ProviderTimeoutError(provider.adapter.provider_name, provider.timeout_config.total_timeout_s)
+
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            from infrgate.services.scoring import record_health_signal, log_routing_decision
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, False)
+            await record_circuit_result(redis, provider.adapter.provider_name, True, cb_config)
+
+            decision.selected_provider = provider.adapter.provider_name
+            decision.fallback_used = i > 0
+            if not decision.reason:
+                decision.reason = "fallback" if i > 0 else "primary"
+                
+            await log_routing_decision(redis, decision)
+
+            async def stream_generator() -> AsyncGenerator[StreamChunk, None]:
+                try:
+                    yield first_chunk
+                    while True:
+                        try:
+                            chunk = await asyncio.wait_for(
+                                anext(stream),
+                                timeout=provider.timeout_config.stream_read_timeout_s
+                            )
+                            yield chunk
+                        except StopAsyncIteration:
+                            break
+                        except asyncio.TimeoutError:
+                            raise ProviderTimeoutError(provider.adapter.provider_name, provider.timeout_config.stream_read_timeout_s)
+                finally:
+                    if hasattr(stream, 'aclose'):
+                        await stream.aclose()
+
+            return stream_generator(), decision
+
+        except ProviderError as e:
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            from infrgate.services.scoring import record_health_signal
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
+            await record_circuit_result(redis, provider.adapter.provider_name, False, cb_config)
+            errors.append(f"{provider.adapter.provider_name}: {e.message}")
+
+            if not getattr(e, "retryable", False):
+                raise
+        except StopAsyncIteration:
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            from infrgate.services.scoring import record_health_signal
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
+            await record_circuit_result(redis, provider.adapter.provider_name, False, cb_config)
+            errors.append(f"{provider.adapter.provider_name}: Stream ended before first chunk")
 
     raise HTTPException(
         503,
