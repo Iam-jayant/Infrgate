@@ -87,6 +87,7 @@ async def record_usage(
     stmt = (
         insert(UsageLedger)
         .values(
+            id=uuid.uuid4(),
             request_id=uuid.UUID(request_id) if isinstance(request_id, str) else request_id,
             tenant_id=tenant_id,
             model=model,
@@ -105,14 +106,41 @@ async def record_usage(
     result = await db.execute(stmt)
 
     if result.rowcount > 0:
-        await db.execute(
+        update_result = await db.execute(
             update(Tenant)
             .where(Tenant.id == tenant_id)
             .values(
                 current_spend_cents=Tenant.current_spend_cents + cost_cents,
                 updated_at=func.now(),
             )
+            .returning(Tenant.spend_cap_cents, Tenant.current_spend_cents)
         )
+        row = update_result.first()
+        if row:
+            spend_cap_cents = row[0]
+            new_spend = row[1]
+            old_spend = new_spend - cost_cents
+            
+            if spend_cap_cents and spend_cap_cents > 0:
+                old_pct = (old_spend / spend_cap_cents) * 100
+                new_pct = (new_spend / spend_cap_cents) * 100
+                
+                thresholds = [50, 75, 90, 100]
+                crossed_thresholds = [t for t in thresholds if old_pct < t <= new_pct]
+                
+                if crossed_thresholds:
+                    from infrgate.services.job_service import enqueue_spend_alert
+                    import datetime
+                    
+                    billing_period = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
+                    
+                    for t in crossed_thresholds:
+                        await enqueue_spend_alert(
+                            session=db,
+                            tenant_id=tenant_id,
+                            threshold=str(t),
+                            billing_period=billing_period
+                        )
 
         logger.info(
             "usage_recorded",

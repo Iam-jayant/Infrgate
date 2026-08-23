@@ -73,6 +73,9 @@ async def check_rate_limit(
 
             retry_after = await _calc_retry_after(redis, key, window_start, window_seconds)
 
+            from infrgate.metrics import RATE_LIMIT_REJECTIONS_TOTAL
+            RATE_LIMIT_REJECTIONS_TOTAL.labels(tenant=tenant_id).inc()
+
             return RateLimitResult(
                 allowed=False,
                 limit=limit,
@@ -136,6 +139,9 @@ async def check_tpm_limit(
                     pass
 
         if current_tokens + estimated_tokens > limit:
+            from infrgate.metrics import RATE_LIMIT_REJECTIONS_TOTAL
+            RATE_LIMIT_REJECTIONS_TOTAL.labels(tenant=tenant_id).inc()
+            
             return RateLimitResult(
                 allowed=False,
                 limit=limit,
