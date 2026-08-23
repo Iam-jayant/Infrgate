@@ -161,7 +161,7 @@ async def test_tenant(db_session: AsyncSession) -> Tenant:
         spend_cap_cents=10_000,
         current_spend_cents=0,
         config={
-            "allowed_models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", "auto-model"],
+            "allowed_models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", "auto-model", "flaky-model"],
             "rpm_limit": 60,
             "tpm_limit": 100_000,
         },
@@ -232,8 +232,18 @@ async def seed_test_provider_configs(db_session: AsyncSession):
             timeout_config={"total_timeout_s": 10.0},
             enabled=True,
         )
+        flaky = ProviderConfig(
+            provider_name="flaky",
+            display_name="Flaky Fake",
+            models=[{"model_id": "flaky-model"}],
+            priority=120,
+            cost_per_1k_tokens={},
+            timeout_config={"total_timeout_s": 10.0},
+            enabled=True,
+        )
         db_session.add(gemini)
         db_session.add(openai)
+        db_session.add(flaky)
         await db_session.commit()
 
 
@@ -259,11 +269,19 @@ def mock_gemini_adapter():
             provider_latency_ms=150,
         )
     )
+    
+    async def mock_stream(request):
+        from infrgate.schemas.streaming import StreamChunk
+        yield StreamChunk(id=request.request_id, model=request.model, delta_role="assistant")
+        yield StreamChunk(id=request.request_id, model=request.model, delta_content="Hello stream")
+        yield StreamChunk(id=request.request_id, model=request.model, finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+        
+    adapter.stream = mock_stream
     return adapter
 
 
 @pytest.fixture
-def mock_registry(mock_gemini_adapter):
+def mock_registry(mock_gemini_adapter, fake_flaky_provider):
     """Provide a mock ProviderRegistry with mock adapters."""
     from infrgate.providers.registry import ProviderRegistry
     from unittest.mock import AsyncMock
@@ -271,6 +289,7 @@ def mock_registry(mock_gemini_adapter):
     
     registry = ProviderRegistry()
     registry.register(mock_gemini_adapter)
+    registry.register(fake_flaky_provider)
     
     openai_adapter = AsyncMock()
     openai_adapter.provider_name = "openai"
@@ -289,3 +308,65 @@ def mock_registry(mock_gemini_adapter):
     registry.register(openai_adapter)
     
     return registry
+
+
+# ── Fake Flaky Provider ──────────────────────────────────────────────────
+
+class FakeFlaky:
+    def __init__(self):
+        self.provider_name = "flaky"
+        self.supported_models = ["flaky-model"]
+        self.call_count = 0
+        self.fail_mode = False
+        self.sleep_time = 0.0
+
+    def always_fail(self):
+        self.fail_mode = True
+
+    def always_succeed(self):
+        self.fail_mode = False
+
+    def reset_call_count(self):
+        self.call_count = 0
+
+    async def complete(self, request):
+        from infrgate.exceptions import ProviderError
+        from infrgate.providers.base import ProviderResponse
+        import asyncio
+        self.call_count += 1
+        
+        if self.sleep_time > 0:
+            await asyncio.sleep(self.sleep_time)
+
+        if self.fail_mode:
+            raise ProviderError("flaky", 500, "simulated failure", "server_error")
+        return ProviderResponse(
+            content="success",
+            model="flaky-model",
+            finish_reason="stop",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+            provider_latency_ms=50,
+        )
+
+    async def stream(self, request):
+        from infrgate.exceptions import ProviderError
+        from infrgate.schemas.streaming import StreamChunk
+        import asyncio
+        self.call_count += 1
+        
+        if self.sleep_time > 0:
+            await asyncio.sleep(self.sleep_time)
+            
+        if self.fail_mode:
+            raise ProviderError("flaky", 500, "simulated failure", "server_error")
+        yield StreamChunk(id=request.request_id, model=request.model, delta_role="assistant")
+        yield StreamChunk(id=request.request_id, model=request.model, delta_content="success")
+        yield StreamChunk(id=request.request_id, model=request.model, finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+
+
+@pytest.fixture
+def fake_flaky_provider():
+    """Provides a stateful flaky provider for testing circuit breakers and concurrency."""
+    return FakeFlaky()
