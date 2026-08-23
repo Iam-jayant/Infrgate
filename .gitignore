@@ -67,3 +67,6 @@ desktop.ini
 *.tmp
 *.sqlite3
 *.db
+
+# Documentation and plans
+commit.md
