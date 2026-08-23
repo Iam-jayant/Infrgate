@@ -8,6 +8,7 @@ FROM python:3.12-slim AS builder
 WORKDIR /build
 
 COPY pyproject.toml ./
+COPY README.md ./
 COPY src/ src/
 
 RUN pip install --no-cache-dir --upgrade pip \
