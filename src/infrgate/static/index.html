@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfrGate AI Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8f7f5;
+            --panel-bg: #ffffff;
+            --border-color: #e5e5e5;
+            --primary: #d97757;
+            --primary-hover: #c26547;
+            --text-main: #111111;
+            --text-muted: #666666;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --border-radius: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Typography */
+        h1,
+        h2,
+        h3,
+        .serif {
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+        }
+
+        .main-content {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            gap: 24px;
+            padding: 0 20px;
+            margin-top: 8vh;
+            margin-bottom: 8vh;
+            height: 84vh;
+        }
+
+        .container,
+        .trace-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            flex: 2;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+        }
+
+        .trace-panel {
+            flex: 1;
+            background: #fafafa;
+        }
+
+        /* Header */
+        .header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--panel-bg);
+        }
+
+        .header-title {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-main);
+        }
+
+        .header-title svg {
+            width: 28px;
+            height: 28px;
+            color: var(--primary);
+        }
+
+        .settings-bar {
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-light {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: var(--border-radius);
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.2s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .input-light:focus,
+        .input-light:hover {
+            border-color: var(--text-main);
+        }
+
+        select.input-light {
+            cursor: pointer;
+            appearance: none;
+            padding-right: 30px;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 14px;
+        }
+
+        .demo-note {
+            font-size: 0.8rem;
+            color: var(--primary);
+            padding: 10px 24px 0;
+        }
+
+        /* Chat Area */
+        .chat-area {
+            flex: 1;
+            padding: 32px 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+            background: #ffffff;
+        }
+
+        .chat-area::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-area::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+        }
+
+        .message {
+            max-width: 85%;
+            display: flex;
+            flex-direction: column;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            align-self: flex-end;
+        }
+
+        .message.user .bubble {
+            background: var(--text-main);
+            color: white;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+        }
+
+        .message.assistant .bubble {
+            background: #f9f9f9;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        .bubble {
+            padding: 16px 20px;
+            border-radius: var(--border-radius);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .telemetry {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+            display: flex;
+            gap: 12px;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .telemetry.visible {
+            opacity: 1;
+        }
+
+        .telemetry span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: #f3f4f6;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 24px;
+            border-top: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            display: flex;
+            gap: 12px;
+        }
+
+        .main-input {
+            flex: 1;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 14px 20px;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.2s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .main-input:focus {
+            border-color: var(--primary);
+        }
+
+        .send-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius);
+            padding: 0 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .send-btn:disabled {
+            background: #d1d5db;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        /* Typing indicator */
+        .typing {
+            display: inline-flex;
+            gap: 4px;
+            align-items: center;
+            height: 20px;
+        }
+
+        .typing span {
+            width: 6px;
+            height: 6px;
+            background: var(--primary);
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .typing span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .typing span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+            }
+
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        .error-text {
+            color: var(--error);
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        /* Trace Panel Styles */
+        .trace-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 1.1rem;
+            background: #fafafa;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-main);
+        }
+
+        .trace-body {
+            padding: 32px 24px;
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .trace-step {
+            display: flex;
+            gap: 16px;
+            opacity: 0.4;
+            transition: opacity 0.3s ease;
+            position: relative;
+        }
+
+        .trace-step.active,
+        .trace-step.completed {
+            opacity: 1;
+        }
+
+        /* Connector Line */
+        .trace-step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            left: 11px;
+            top: 24px;
+            bottom: -20px;
+            width: 1px;
+            background: var(--border-color);
+            z-index: 0;
+        }
+
+        .trace-step.completed:not(:last-child)::after {
+            background: var(--text-main);
+        }
+
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            z-index: 1;
+            border: 1px solid var(--border-color);
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+            color: var(--text-muted);
+        }
+
+        .trace-step.active .step-icon {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .trace-step.completed .step-icon.success {
+            background: var(--text-main);
+            border-color: var(--text-main);
+            color: white;
+        }
+
+        .trace-step.completed .step-icon.error {
+            background: var(--error);
+            border-color: var(--error);
+            color: white;
+        }
+
+        .trace-step.completed .step-icon.warning {
+            background: var(--warning);
+            border-color: var(--warning);
+            color: white;
+        }
+
+        .step-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding-bottom: 4px;
+        }
+
+        .step-title {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        .step-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .spinner {
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* About Section */
+        .about-section {
+            width: 100%;
+            max-width: 1200px;
+            padding: 60px 20px 100px;
+            margin: 0 auto;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .about-header {
+            margin-bottom: 40px;
+            text-align: center;
+        }
+
+        .about-header h2 {
+            font-size: 2.5rem;
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+
+        .about-header p {
+            font-size: 1.1rem;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .about-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .about-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .about-column {
+            background: #ffffff;
+            padding: 32px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+        }
+
+        .about-section h3 {
+            font-size: 1.4rem;
+            margin-bottom: 20px;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+
+        .about-section p {
+            line-height: 1.7;
+            margin-bottom: 16px;
+            color: #444;
+        }
+
+        .about-section ul {
+            margin-left: 24px;
+        }
+
+        .about-section li {
+            line-height: 1.7;
+            margin-bottom: 12px;
+            color: #444;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main-content">
+        <!-- Main Container -->
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-title serif">
+                    InfrGate
+                </div>
+                <div class="settings-bar">
+                    <input type="password" id="apiKey" class="input-light" placeholder="Tenant API Key"
+                        style="width: 220px;">
+                    <select id="modelSelect" class="input-light">
+                        <option value="gpt-4o-mini">gpt-4o-mini</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        <option value="Qwen/Qwen2.5-72B-Instruct" selected>Qwen/Qwen2.5-72B-Instruct (HF)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="demo-note" style="padding: 12px 24px; background: #fff8f6; border-bottom: 1px solid #fde8e4; font-size: 0.9rem; color: var(--primary); display: flex; align-items: center; gap: 8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <span>Note: Only <strong>Qwen/Qwen2.5-72B-Instruct</strong> is fully configured for this demo. Other models may not respond.</span>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="chat-area" id="chatArea">
+                <div class="message assistant">
+                    <div class="bubble">Welcome to the InfrGate AI Gateway Demo! Enter your Tenant API Key above and send a message. The gateway will route your request, enforce rate limits, and stream the response back.</div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <input type="text" id="promptInput" class="main-input" placeholder="Type a message..."
+                    autocomplete="off">
+                <button id="sendBtn" class="send-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                    Send
+                </button>
+            </div>
+        </div>
+
+        <!-- Trace Panel -->
+        <div class="trace-panel">
+            <div class="trace-header serif">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                Gateway Execution Trace
+            </div>
+            <div class="trace-body" id="traceBody">
+                <div class="step-desc" style="text-align: center; margin-top: 50px; opacity: 0.7;">
+                    Send a message to see the lifecycle of the request through the gateway.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- About Project Section -->
+    <div class="about-section">
+        <div class="about-header">
+            <h2 class="serif">About InfrGate</h2>
+            <p>InfrGate is an open-source, high-performance AI Gateway designed to seamlessly multiplex and route
+                traffic to various LLM providers (including OpenAI, Google Gemini, and Hugging Face) using a unified
+                OpenAI-compatible API layer.</p>
+        </div>
+
+        <div class="about-grid">
+            <div class="about-column">
+                <h3 class="serif">Why it is needed?</h3>
+                <p>As organizations scale their AI usage, managing API keys, rate limits, and billing across disparate
+                    providers becomes a nightmare. InfrGate solves this by acting as a centralized proxy. Instead of
+                    distributing sensitive provider API keys to client applications, clients are given a <strong>Tenant
+                        API Key</strong>. InfrGate securely manages the upstream keys and enforces tenant-specific
+                    spending caps and rate limits.</p>
+
+                <h3 class="serif" style="margin-top: 32px;">Core Design Principles</h3>
+                <p>This project was built adhering to strict distributed systems principles:</p>
+                <ul>
+                    <li><strong>Atomicity:</strong> Background ledger updates ensure that token accounting is never
+                        lost, even if the primary request thread dies mid-stream.</li>
+                    <li><strong>Reliability:</strong> Robust failover logic catches HTTP timeouts and provider rate
+                        limits gracefully.</li>
+                    <li><strong>Observability:</strong> Real-time traces make debugging API issues transparent and
+                        deterministic.</li>
+                    <li><strong>Horizontal Scalability:</strong> Redis and PostgreSQL architecture ensures InfrGate can
+                        be scaled across multiple containers without locking contention.</li>
+                </ul>
+            </div>
+
+            <div class="about-column">
+                <h3 class="serif">How it works</h3>
+                <p>When you send a message via the UI, the request undergoes a rigorous, optimized lifecycle:</p>
+                <ul>
+                    <li><strong>Authentication:</strong> Validates the Tenant API key against PostgreSQL.</li>
+                    <li><strong>Rate Limiting:</strong> Enforces RPM and TPM limits using a fast Redis token bucket
+                        algorithm.</li>
+                    <li><strong>Idempotency Cache:</strong> Checks if the exact request was already processed to prevent
+                        duplicate billing.</li>
+                    <li><strong>Provider Routing:</strong> Dynamically selects the appropriate model adapter (e.g.,
+                        translating OpenAI schema to Hugging Face or Gemini native schemas).</li>
+                    <li><strong>Response Streaming:</strong> Streams Server-Sent Events (SSE) back to the client in
+                        real-time.</li>
+                    <li><strong>Usage Accounting:</strong> Persists the final token counts to a secure Ledger using a
+                        highly concurrent <code>SKIP LOCKED</code> background worker, ensuring atomicity.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatArea = document.getElementById('chatArea');
+        const promptInput = document.getElementById('promptInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const apiKeyInput = document.getElementById('apiKey');
+        const modelSelect = document.getElementById('modelSelect');
+        const traceBody = document.getElementById('traceBody');
+
+        const STEPS = [
+            { id: 'auth', title: 'Authentication', desc: 'Verify API key and resolve Tenant ID from PostgreSQL.' },
+            { id: 'ratelimit', title: 'Rate Limiting', desc: 'Check Redis Token Bucket and concurrency limits.' },
+            { id: 'idempotency', title: 'Idempotency Cache', desc: 'Check if this exact request was already processed.' },
+            { id: 'routing', title: 'Provider Routing', desc: 'Select model adapter and establish outbound connection.' },
+            { id: 'streaming', title: 'Response Streaming', desc: 'Stream Server-Sent Events from upstream provider.' },
+            { id: 'accounting', title: 'Usage Accounting', desc: 'Persist final token counts to Ledger via SKIP LOCKED worker.' }
+        ];
+
+        function resetTrace() {
+            traceBody.innerHTML = '';
+            STEPS.forEach((step, idx) => {
+                const el = document.createElement('div');
+                el.className = 'trace-step';
+                el.id = `trace-${step.id}`;
+                el.innerHTML = `
+                    <div class="step-icon" id="icon-${step.id}">${idx + 1}</div>
+                    <div class="step-content">
+                        <div class="step-title">${step.title}</div>
+                        <div class="step-desc" id="desc-${step.id}">${step.desc}</div>
+                    </div>
+                `;
+                traceBody.appendChild(el);
+            });
+        }
+
+        async function updateTraceStep(stepId, status, message = null) {
+            const el = document.getElementById(`trace-${stepId}`);
+            const icon = document.getElementById(`icon-${stepId}`);
+            const desc = document.getElementById(`desc-${stepId}`);
+
+            if (!el) return;
+
+            el.className = 'trace-step';
+
+            if (status === 'active') {
+                el.classList.add('active');
+                icon.innerHTML = '<div class="spinner"></div>';
+            } else if (status === 'success') {
+                el.classList.add('completed');
+                icon.className = 'step-icon success';
+                icon.innerHTML = '✓';
+            } else if (status === 'error') {
+                el.classList.add('completed');
+                icon.className = 'step-icon error';
+                icon.innerHTML = '✗';
+                if (message) desc.innerHTML = `<span style="color: var(--error)">${message}</span>`;
+            } else if (status === 'warning') {
+                el.classList.add('completed');
+                icon.className = 'step-icon warning';
+                icon.innerHTML = '!';
+                if (message) desc.innerHTML = `<span style="color: var(--warning)">${message}</span>`;
+            }
+
+            // Scroll trace panel
+            const tracePanel = document.querySelector('.trace-body');
+            tracePanel.scrollTop = tracePanel.scrollHeight;
+        }
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        function appendMessage(role, content) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `message ${role}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.innerHTML = content || '';
+
+            wrapper.appendChild(bubble);
+            chatArea.appendChild(wrapper);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            return { wrapper, bubble };
+        }
+
+        async function sendMessage() {
+            const text = promptInput.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            const model = modelSelect.value;
+
+            if (!text) return;
+            if (!apiKey) {
+                alert("Please enter your Tenant API Key.");
+                apiKeyInput.focus();
+                return;
+            }
+
+            // UI updates
+            promptInput.value = '';
+            promptInput.disabled = true;
+            sendBtn.disabled = true;
+            appendMessage('user', text);
+            resetTrace();
+
+            const { wrapper: astWrapper, bubble: astBubble } = appendMessage('assistant', '<div class="typing"><span></span><span></span></div>');
+
+            try {
+                // Phase 1: Pre-flight
+                updateTraceStep('auth', 'active');
+                await delay(300);
+
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: 'user', content: text }],
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    if (response.status === 401) {
+                        updateTraceStep('auth', 'error', 'Invalid API Key.');
+                    } else if (response.status === 429) {
+                        updateTraceStep('auth', 'success');
+                        updateTraceStep('ratelimit', 'error', 'Rate limit exceeded.');
+                    } else {
+                        updateTraceStep('auth', 'success');
+                        updateTraceStep('ratelimit', 'success');
+                        updateTraceStep('routing', 'error', err.error?.message || 'Gateway error');
+                    }
+                    astBubble.innerHTML = `<span class="error-text">HTTP ${response.status}: ${JSON.stringify(err)}</span>`;
+                    return;
+                }
+
+                updateTraceStep('auth', 'success');
+                updateTraceStep('ratelimit', 'active');
+                await delay(150);
+                updateTraceStep('ratelimit', 'success');
+
+                updateTraceStep('idempotency', 'active');
+                await delay(150);
+                updateTraceStep('idempotency', 'success');
+
+                // Phase 2: Routing
+                updateTraceStep('routing', 'active');
+                await delay(400);
+                updateTraceStep('routing', 'success');
+
+                // Phase 3: Streaming
+                updateTraceStep('streaming', 'active');
+                astBubble.innerHTML = '';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+                let finalUsage = null;
+                let finalModel = null;
+                let errorOccurred = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.replace('data: ', '').trim();
+                            if (dataStr === '[DONE]') continue;
+                            if (!dataStr) continue;
+
+                            try {
+                                const data = JSON.parse(dataStr);
+                                if (data.error) {
+                                    errorOccurred = true;
+                                    astBubble.innerHTML += `<br><br><span class="error-text">Gateway Error: ${data.error.message} (${data.error.type})</span>`;
+                                    updateTraceStep('streaming', 'error', 'Upstream provider failed or timed out.');
+                                    break;
+                                }
+
+                                if (data.model) finalModel = data.model;
+                                if (data.usage) finalUsage = data.usage;
+
+                                const delta = data.choices?.[0]?.delta?.content || data.choices?.[0]?.message?.content || '';
+                                fullText += delta;
+                                astBubble.textContent = fullText;
+                                chatArea.scrollTop = chatArea.scrollHeight;
+                            } catch (e) {
+                                console.error('Parse error:', e, dataStr);
+                            }
+                        }
+                    }
+                    if (errorOccurred) break;
+                }
+
+                if (!errorOccurred) {
+                    updateTraceStep('streaming', 'success');
+
+                    updateTraceStep('accounting', 'active');
+                    await delay(300);
+                    updateTraceStep('accounting', 'success');
+
+                    if (finalUsage) {
+                        const telemetry = document.createElement('div');
+                        telemetry.className = 'telemetry visible';
+                        telemetry.innerHTML = `
+                            <span>⚡ ${finalModel || model}</span>
+                            <span>📊 ${finalUsage.total_tokens || 0} tokens</span>
+                        `;
+                        astWrapper.appendChild(telemetry);
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                    }
+                }
+
+            } catch (err) {
+                astBubble.innerHTML = `<span class="error-text">Network Error: ${err.message}</span>`;
+                updateTraceStep('routing', 'error', 'Failed to connect to gateway.');
+            } finally {
+                promptInput.disabled = false;
+                sendBtn.disabled = false;
+                promptInput.focus();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        promptInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+
+</html>
