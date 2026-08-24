@@ -4,10 +4,10 @@
 
 ---
 
-## 🌐 Live Demo
+## 🌐 Live Demo & API
 
-- **Frontend UI (Vercel):** [Insert Vercel Link Here]
-- **Backend Gateway (Cloud Run):** [Insert Cloud Run Link Here]
+- **Live Deployment (UI & Gateway):** [https://infrgate.onrender.com/](https://infrgate.onrender.com/)
+- **Demo Tenant API Key:** `365c7a7b.ZZVujqiq-gWiHWJWAcqxz8x8QrwiRi4rWOFr5DMVr1I`
 
 ---
 
@@ -21,8 +21,7 @@ InfrGate centralizes those concerns behind a single OpenAI-compatible backend ga
 
 This project is built to scale out-of-the-box utilizing serverless & managed infrastructure:
 
-- **Frontend Application:** Hosted on **Vercel** for global CDN edge delivery and fast static asset loading. Features a minimalist, realistic aesthetic inspired by Claude's interface.
-- **Backend API (Gateway & Worker):** Hosted on **Google Cloud Run**, providing stateless, auto-scaling containerized compute that scales to zero and handles massive concurrent traffic bursts.
+- **Unified Host (API & UI):** Hosted on **Render** as a high-performance containerized Docker service. The FastAPI application directly serves both the high-throughput gateway API and the minimal, Claude-inspired static frontend.
 - **Primary Database:** **Supabase** (Managed PostgreSQL) acts as the system of record. It securely stores tenant API keys, model configurations, and the durable token usage ledger.
 - **State & Rate Limiting:** **Upstash** (Serverless Redis) provides sub-millisecond ephemeral state for Token Bucket rate limiting and sliding-window circuit breakers.
 - **Model Providers:** Seamlessly multiplexes between **Hugging Face** (via `router.huggingface.co`), **Google Gemini**, and **OpenAI**.
@@ -30,19 +29,19 @@ This project is built to scale out-of-the-box utilizing serverless & managed inf
 ## Flow Architecture
 
 ```text
-HTTP request -> Vercel UI -> Google Cloud Run (InfrGate)
-                                 |
-                      Authentication & Tenant Isolation (Supabase)
-                                 |
-                 Rate Limiting & Policy Checks (Upstash Redis)
-                                 |
-                           Routing Engine
-                                 |
-           Provider Execution (Timeout, Retry, Failover)
-                                 |
-                         Usage Persistence
-                                 |
-         Background Processing (SKIP LOCKED Queue on Supabase)
+HTTP request -> Render (FastAPI UI & Gateway)
+                     |
+          Authentication & Tenant Isolation (Supabase)
+                     |
+     Rate Limiting & Policy Checks (Upstash Redis)
+                     |
+               Routing Engine
+                     |
+Provider Execution (Timeout, Retry, Failover)
+                     |
+             Usage Persistence
+                     |
+Background Processing (SKIP LOCKED Queue on Supabase)
 ```
 
 ## Current State & Implementation
@@ -85,7 +84,7 @@ During mid-flight provider execution, if a client disconnected or the server tim
 | **Database** | PostgreSQL (Supabase) | System of record for strict relational guarantees. |
 | **Message Queue**| Postgres `SKIP LOCKED` | Removes the need for Kafka/RabbitMQ while remaining transactionally sound. |
 | **Cache/State** | Redis (Upstash) | Fast ephemeral state for rate limits and circuit breakers. |
-| **Hosting** | Cloud Run & Vercel | Infinite serverless scale with zero-downtime deployments. |
+| **Hosting** | Render | High-performance Docker container with auto-deployments. |
 
 ## Getting Started (Local Development)
 
@@ -122,8 +121,8 @@ poetry run pytest -v
 **POST `/v1/chat/completions`**
 
 ```bash
-curl -X POST https://[YOUR_CLOUD_RUN_URL]/v1/chat/completions \
-  -H "Authorization: Bearer [YOUR_TENANT_API_KEY]" \
+curl -X POST https://infrgate.onrender.com/v1/chat/completions \
+  -H "Authorization: Bearer 365c7a7b.ZZVujqiq-gWiHWJWAcqxz8x8QrwiRi4rWOFr5DMVr1I" \
   -H "Idempotency-Key: my-unique-key-456" \
   -H "Content-Type: application/json" \
   -d '{
