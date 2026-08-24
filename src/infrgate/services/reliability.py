@@ -383,6 +383,8 @@ async def execute_stream_with_failover(
             return stream_generator(), decision
 
         except ProviderError as e:
+            import structlog
+            structlog.get_logger().error("provider_error_caught", provider=provider.adapter.provider_name, error=str(e), type=type(e).__name__)
             latency_ms = int((time.monotonic() - start_time) * 1000)
             from infrgate.services.scoring import record_health_signal
             await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
@@ -392,11 +394,21 @@ async def execute_stream_with_failover(
             if not getattr(e, "retryable", False):
                 raise
         except StopAsyncIteration:
+            import structlog
+            structlog.get_logger().error("provider_stream_ended", provider=provider.adapter.provider_name)
             latency_ms = int((time.monotonic() - start_time) * 1000)
             from infrgate.services.scoring import record_health_signal
             await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
             await record_circuit_result(redis, provider.adapter.provider_name, False, cb_config)
             errors.append(f"{provider.adapter.provider_name}: Stream ended before first chunk")
+        except Exception as e:
+            import structlog
+            structlog.get_logger().error("provider_unhandled_exception", provider=provider.adapter.provider_name, error=str(e), type=type(e).__name__)
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            from infrgate.services.scoring import record_health_signal
+            await record_health_signal(redis, provider.adapter.provider_name, latency_ms, True)
+            await record_circuit_result(redis, provider.adapter.provider_name, False, cb_config)
+            errors.append(f"{provider.adapter.provider_name}: {type(e).__name__}: {str(e)}")
 
     raise HTTPException(
         503,

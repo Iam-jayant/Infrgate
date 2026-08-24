@@ -9,6 +9,7 @@ Spec reference: 01-system-overview.md §5.1
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -70,11 +71,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from infrgate.providers.gemini import GeminiAdapter
     from infrgate.providers.openai import OpenAIAdapter
     from infrgate.providers.fake import FakeAdapter
+    from infrgate.providers.huggingface import HuggingFaceAdapter
 
     registry = ProviderRegistry()
     registry.register(GeminiAdapter(api_key=settings.GEMINI_API_KEY, http_client=http_client))
     registry.register(OpenAIAdapter(api_key=settings.OPENAI_API_KEY, http_client=http_client))
     registry.register(FakeAdapter())
+
+    if settings.HUGGINGFACE_API_KEY:
+        registry.register(
+            HuggingFaceAdapter(
+                api_key=settings.HUGGINGFACE_API_KEY,
+                http_client=http_client,
+            )
+        )
 
     app.state.provider_registry = registry
 
@@ -100,9 +110,17 @@ def create_app() -> FastAPI:
     )
 
     # ── Middleware (outermost first) ──────────────────────────────────────
+    from fastapi.middleware.cors import CORSMiddleware
     from infrgate.middleware.request_id import RequestIDMiddleware
     from infrgate.middleware.metrics import MetricsMiddleware
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(MetricsMiddleware)
 
@@ -121,6 +139,23 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(health_router)
     app.include_router(metrics_router)
+
+    # ── Static UI ────────────────────────────────────────────────────────
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+    import os
+
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/")
+        async def serve_ui():
+            return FileResponse(os.path.join(static_dir, "index.html"))
+    else:
+        @app.get("/")
+        async def root():
+            return {"message": "InfrGate API"}
 
     return app
 

@@ -57,6 +57,7 @@ def resolve_providers(
                 connect_timeout_s=t_cfg.get("connect_timeout_s", 5.0),
                 read_timeout_s=t_cfg.get("read_timeout_s", 30.0),
                 total_timeout_s=t_cfg.get("total_timeout_s", 60.0),
+                stream_read_timeout_s=t_cfg.get("stream_read_timeout_s", 30.0),
             )
             retry_policy = RetryPolicy()  # Use defaults for now
 

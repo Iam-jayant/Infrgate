@@ -187,10 +187,14 @@ async def chat_completions(
                         yield "data: [DONE]\n\n"
                     elif isinstance(e, HTTPException):
                         status = "failed"
+                        msg = e.detail.get("error", {}).get("message", str(e.detail)) if isinstance(e.detail, dict) else str(e.detail)
+                        if isinstance(e.detail, dict) and "error" in e.detail and "details" in e.detail["error"]:
+                            msg += f" Details: {'; '.join(e.detail['error']['details'])}"
+
                         err_chunk = {
                             "error": {
                                 "type": e.detail.get("error", {}).get("type", "api_error") if isinstance(e.detail, dict) else "api_error",
-                                "message": e.detail.get("error", {}).get("message", str(e.detail)) if isinstance(e.detail, dict) else str(e.detail),
+                                "message": msg,
                                 "code": e.status_code
                             }
                         }

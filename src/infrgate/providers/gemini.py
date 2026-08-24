@@ -45,6 +45,8 @@ class GeminiAdapter(ProviderAdapter):
         "gemini-2.0-flash",
         "gemini-2.5-flash",
         "gemini-2.5-pro",
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-flash-lite-preview",
     ]
 
     def __init__(self, api_key: str, http_client: httpx.AsyncClient):
@@ -77,10 +79,10 @@ class GeminiAdapter(ProviderAdapter):
                 url,
                 json=body,
                 params={"key": self._api_key},
-                timeout=30.0,
+                timeout=60.0,
             )
         except httpx.TimeoutException:
-            raise ProviderTimeoutError("gemini", 30.0)
+            raise ProviderTimeoutError("gemini", 60.0)
         except httpx.ConnectError as e:
             raise ProviderError(
                 message=f"Failed to connect to Gemini: {e}",
@@ -126,7 +128,7 @@ class GeminiAdapter(ProviderAdapter):
                 url,
                 json=body,
                 params={"key": self._api_key},
-                timeout=30.0,
+                timeout=60.0,
             ) as resp:
                 if resp.status_code != 200:
                     await resp.aread()
@@ -186,7 +188,7 @@ class GeminiAdapter(ProviderAdapter):
                             )
 
         except httpx.TimeoutException:
-            raise ProviderTimeoutError("gemini", 30.0)
+            raise ProviderTimeoutError("gemini", 60.0)
         except httpx.ConnectError as e:
             raise ProviderError(
                 message=f"Failed to connect to Gemini: {e}",

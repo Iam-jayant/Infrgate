@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # ── Provider Keys ─────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    HUGGINGFACE_API_KEY: str = ""
 
     # ── Admin Authentication ──────────────────────────────────────────────
     ADMIN_API_KEY: str = ""
@@ -55,16 +56,20 @@ PLAN_DEFAULTS: dict[str, dict] = {
         "rpm": 10,
         "tpm": 10_000,
         "spend_cap_cents": 1000,  # $10
-        "models": ["gemini-3.6-flash"],
+        "models": [
+            "gpt-4o-mini",
+            "gemini-2.5-flash",
+            "Qwen/Qwen2.5-72B-Instruct",
+        ],
     },
     "standard": {
         "rpm": 60,
         "tpm": 100_000,
-        "spend_cap_cents": 10_000,  # $100
+        "spend_cap_cents": 5000,  # $50
         "models": [
-            "gemini-3.6-flash",
+            "gpt-4o-mini",
             "gemini-2.5-flash",
-            "gemini-2.5-pro",
+            "Qwen/Qwen2.5-72B-Instruct",
         ],
     },
     "enterprise": {
@@ -72,9 +77,7 @@ PLAN_DEFAULTS: dict[str, dict] = {
         "tpm": 1_000_000,
         "spend_cap_cents": None,  # Unlimited
         "models": [
-            "gemini-3.6-flash",
             "gemini-2.5-flash",
-            "gemini-2.5-pro",
         ],
     },
 }
