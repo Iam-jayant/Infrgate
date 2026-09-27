@@ -32,6 +32,8 @@ COPY src/ src/
 COPY alembic/ alembic/
 COPY alembic.ini ./
 
+ENV PYTHONPATH=/app/src
+
 # Switch to non-root user
 USER infrgate
 

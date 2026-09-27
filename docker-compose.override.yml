@@ -10,6 +10,18 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./src:/app/src:ro
-    command: ["uvicorn", "infrgate.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - ./alembic:/app/alembic:ro
+    command: ["sh", "-c", "alembic upgrade head && uvicorn infrgate.main:create_app --factory --host 0.0.0.0 --port 8000 --reload"]
     environment:
       - LOG_LEVEL=DEBUG
+      - PYTHONPATH=/app/src
+      - DATABASE_URL=postgresql+asyncpg://infrgate:infrgate@postgres:5432/infrgate
+      - REDIS_URL=redis://redis:6379/0
+
+  worker:
+    volumes:
+      - ./src:/app/src:ro
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_URL=postgresql+asyncpg://infrgate:infrgate@postgres:5432/infrgate
+      - REDIS_URL=redis://redis:6379/0
