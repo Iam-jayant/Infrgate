@@ -67,7 +67,7 @@ class HuggingFaceAdapter(ProviderAdapter):
                 url,
                 json=body,
                 headers=headers,
-                timeout=30.0,
+                timeout=60.0,
             )
         except httpx.TimeoutException:
             raise ProviderTimeoutError("huggingface", 30.0)
@@ -122,7 +122,7 @@ class HuggingFaceAdapter(ProviderAdapter):
                 url,
                 json=body,
                 headers=headers,
-                timeout=30.0,
+                timeout=60.0,
             ) as resp:
                 if resp.status_code != 200:
                     await resp.aread()

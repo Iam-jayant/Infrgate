@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,16 @@ class Settings(BaseSettings):
 
     # ── Database (PostgreSQL) ─────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://infrgate:infrgate@localhost:5432/infrgate"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://"):
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     # ── Redis ─────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -77,7 +88,13 @@ PLAN_DEFAULTS: dict[str, dict] = {
         "tpm": 1_000_000,
         "spend_cap_cents": None,  # Unlimited
         "models": [
+            "gpt-4o",
+            "gpt-4o-mini",
             "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3.6-flash",
+            "Qwen/Qwen2.5-72B-Instruct",
+            "meta-llama/Llama-3.2-3B-Instruct",
         ],
     },
 }

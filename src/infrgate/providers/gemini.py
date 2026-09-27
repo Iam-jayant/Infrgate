@@ -112,7 +112,7 @@ class GeminiAdapter(ProviderAdapter):
 
     async def stream(self, request: ProviderRequest) -> AsyncIterator[StreamChunk]:
         """Execute a streaming chat completion via Gemini."""
-        url = f"{self.BASE_URL}/models/{request.model}:streamGenerateContent?alt=sse"
+        url = f"{self.BASE_URL}/models/{request.model}:streamGenerateContent"
         body = self._translate_request(request)
 
         logger.info(
@@ -127,7 +127,7 @@ class GeminiAdapter(ProviderAdapter):
                 "POST",
                 url,
                 json=body,
-                params={"key": self._api_key},
+                params={"key": self._api_key, "alt": "sse"},
                 timeout=60.0,
             ) as resp:
                 if resp.status_code != 200:
