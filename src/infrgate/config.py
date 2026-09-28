@@ -36,6 +36,11 @@ class Settings(BaseSettings):
                 v = v.replace("postgres://", "postgresql+asyncpg://", 1)
             elif v.startswith("postgresql://"):
                 v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            
+            # Supabase requires SSL. asyncpg defaults to no SSL.
+            if "supabase" in v and "ssl=" not in v.lower() and "sslmode=" not in v.lower():
+                separator = "&" if "?" in v else "?"
+                v = f"{v}{separator}ssl=require"
         return v
 
     # ── Redis ─────────────────────────────────────────────────────────────

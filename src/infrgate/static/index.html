@@ -8,6 +8,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Markdown and Math rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
     <style>
         :root {
             --bg-color: #141414;
@@ -207,7 +214,47 @@
             border-radius: var(--border-radius);
             font-size: 0.95rem;
             line-height: 1.6;
-            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        .bubble p {
+            margin-bottom: 12px;
+        }
+
+        .bubble p:last-child {
+            margin-bottom: 0;
+        }
+
+        .bubble ul, .bubble ol {
+            margin-left: 20px;
+            margin-bottom: 12px;
+        }
+
+        .bubble h1, .bubble h2, .bubble h3 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-weight: 600;
+        }
+
+        .bubble pre {
+            background: #111;
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-bottom: 12px;
+        }
+
+        .bubble code {
+            font-family: 'IBM Plex Mono', monospace;
+            background: rgba(255,255,255,0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .bubble pre code {
+            background: none;
+            padding: 0;
         }
 
         .telemetry {
@@ -831,7 +878,23 @@
 
                                 const delta = data.choices?.[0]?.delta?.content || data.choices?.[0]?.message?.content || '';
                                 fullText += delta;
-                                astBubble.textContent = fullText;
+                                
+                                // Render Markdown to HTML
+                                astBubble.innerHTML = marked.parse(fullText);
+                                
+                                // Render LaTeX Math Equations
+                                if (window.renderMathInElement) {
+                                    renderMathInElement(astBubble, {
+                                        delimiters: [
+                                            {left: '$$', right: '$$', display: true},
+                                            {left: '$', right: '$', display: false},
+                                            {left: '\\(', right: '\\)', display: false},
+                                            {left: '\\[', right: '\\]', display: true}
+                                        ],
+                                        throwOnError: false
+                                    });
+                                }
+                                
                                 chatArea.scrollTop = chatArea.scrollHeight;
                             } catch (e) {
                                 console.error('Parse error:', e, dataStr);
