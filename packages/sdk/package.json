@@ -1,0 +1,63 @@
+{
+  "name": "@infrgate/control-plane",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Zero-dependency TypeScript SDK for InfrGate control plane primitives: idempotency, rate limiting, circuit breaking, and intelligent routing",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "llm",
+    "gateway",
+    "ai",
+    "openai",
+    "control-plane",
+    "rate-limiting",
+    "circuit-breaker",
+    "idempotency",
+    "reliability",
+    "resilience",
+    "botchain",
+    "inference"
+  ],
+  "author": "InfrGate Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/infrgate/infrgate.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  },
+  "dependencies": {}
+}
